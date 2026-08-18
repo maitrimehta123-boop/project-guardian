@@ -5,10 +5,15 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Public (browser-safe) backend identifiers only. The previous values here were
+  # malformed JWTs for a mistyped project ref and broke auth in production.
+  # Never add SUPABASE_SERVICE_ROLE_KEY or RAZORPAY_KEY_SECRET here — those are
+  # server-only and must be set in the Netlify UI (Site settings → Environment).
   VITE_SUPABASE_URL = "https://lzfcquqtsxkemodhbyqh.supabase.co"
   VITE_SUPABASE_PROJECT_ID = "lzfcquqtsxkemodhbyqh"
-  VITE_SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6ZmNxdXF0c3hrZW1vZGhiaXFoIiwiaWF0IjoxNzE4NTY0MjA4OSwiZXhwIjoyMTAxMjEwODA5fQ._KGjh1D8w216PVdnG_csbsA015twT9erbkBAYhrGcCQ"
-  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6ZmNxdXF0c3hrZW1vZGhiaXFoIiwiaWF0IjoxNzE4NTY0MjA4OSwiZXhwIjoyMTAxMjEwODA5fQ._KGjh1D8w216PVdnG_csbsA015twT9erbkBAYhrGcCQ"
+  VITE_SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6ZmNxdXF0c3hrZW1vZGhieXFoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2NDIwODksImV4cCI6MjEwMTIxODA4OX0._KGjh1D8w216PVdnG_csbsA015twT9erbkBAYhrGcCQ"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6ZmNxdXF0c3hrZW1vZGhieXFoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2NDIwODksImV4cCI6MjEwMTIxODA4OX0._KGjh1D8w216PVdnG_csbsA015twT9erbkBAYhrGcCQ"
+
 
 [functions]
   node_bundler = "esbuild"
