@@ -17,6 +17,40 @@ const BodySchema = z.object({
   razorpay_signature: z.string().min(20).max(200),
 });
 
+type Admin = ReturnType<typeof getAdminClient>;
+
+/**
+ * Best-effort write of the audit columns added by the payment-hardening
+ * migration. Ignored if the column set is not deployed yet, so a genuine
+ * payment is never lost because of a pending migration.
+ */
+const recordVerification = async (
+  admin: Admin,
+  orderId: string,
+  fields: { verification_status: string; payment_verified_at?: string | null },
+) => {
+  const { error } = await admin.from("orders").update(fields).eq("id", orderId);
+  if (error) console.warn("verification_audit_write_skipped", error.message);
+};
+
+/** Persists a failed/rejected verification attempt for later investigation. */
+const logFailure = async (
+  admin: Admin,
+  reason: string,
+  orderId: string,
+  razorpayOrderId: string | null,
+  paymentId: string,
+) => {
+  await admin.from("payment_events").insert({
+    event_id: `verify_failed:${orderId}:${paymentId}:${reason}`,
+    event_type: `verification.${reason}`,
+    payment_id: paymentId,
+    razorpay_order_id: razorpayOrderId,
+    payload: { internal_order_id: orderId, reason },
+  });
+  await recordVerification(admin, orderId, { verification_status: `failed:${reason}` });
+};
+
 /**
  * Single verification path: signature (against the SERVER-stored Razorpay
  * order id) → Razorpay API truth → capture when only authorized → mark PAID.
