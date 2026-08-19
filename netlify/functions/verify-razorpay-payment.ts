@@ -157,6 +157,11 @@ export const handler = async (event: FunctionEvent) => {
       .select("id, order_number")
       .maybeSingle();
 
+    await recordVerification(admin, order.id, {
+      verification_status: captured ? "verified" : "authenticated",
+      payment_verified_at: new Date().toISOString(),
+    });
+
     return json(200, {
       status: captured ? "paid" : "authenticated",
       order_id: order.id,
