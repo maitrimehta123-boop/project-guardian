@@ -88,6 +88,22 @@ export const handler = async (event: FunctionEvent) => {
       })
       .eq("id", order.id)
       .neq("payment_status", "paid");
+
+    // Audit columns (payment-hardening migration) — best effort, never fatal.
+    const { error: auditError } = await admin
+      .from("orders")
+      .update({ verification_status: "verified_webhook", payment_verified_at: new Date().toISOString() })
+      .eq("id", order.id);
+    if (auditError) console.warn("webhook_audit_write_skipped", auditError.message);
+  } else if (payment && !amountOk && eventType === "payment.captured") {
+    // Captured amount does not match the server-computed total: never mark paid.
+    console.error("webhook_amount_mismatch", order.id);
+    const { error: auditError } = await admin
+      .from("orders")
+      .update({ verification_status: "failed:amount_mismatch" })
+      .eq("id", order.id)
+      .neq("payment_status", "paid");
+    if (auditError) console.warn("webhook_audit_write_skipped", auditError.message);
   } else if (eventType === "payment.failed" && order.payment_status !== "paid") {
     await admin.from("orders").update({ payment_status: "failed", status: "PAYMENT_FAILED" }).eq("id", order.id);
   } else if (
