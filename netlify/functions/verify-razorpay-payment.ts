@@ -102,13 +102,18 @@ export const handler = async (event: FunctionEvent) => {
     }
     if (!order.razorpay_order_id) return json(400, { error: "Invalid payment confirmation." });
 
-    if (!verifyRazorpaySignature(order.razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
+    const reject = async (reason: string, message: string) => {
       await admin
         .from("orders")
         .update({ status: "PAYMENT_FAILED", payment_status: "failed" })
         .eq("id", order.id)
         .neq("payment_status", "paid");
-      return json(400, { error: "We could not verify this payment." });
+      await logFailure(admin, reason, order.id, order.razorpay_order_id, razorpay_payment_id);
+      return json(400, { error: message });
+    };
+
+    if (!verifyRazorpaySignature(order.razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
+      return reject("signature_mismatch", "We could not verify this payment.");
     }
 
     const expectedPaise = Math.round(Number(order.total) * 100);
@@ -119,21 +124,11 @@ export const handler = async (event: FunctionEvent) => {
       payment.amount !== expectedPaise ||
       payment.currency !== "INR"
     ) {
-      await admin
-        .from("orders")
-        .update({ status: "PAYMENT_FAILED", payment_status: "failed" })
-        .eq("id", order.id)
-        .neq("payment_status", "paid");
-      return json(400, { error: "We could not verify this payment." });
+      return reject("amount_or_order_mismatch", "We could not verify this payment.");
     }
 
     if (payment.status === "failed") {
-      await admin
-        .from("orders")
-        .update({ status: "PAYMENT_FAILED", payment_status: "failed" })
-        .eq("id", order.id)
-        .neq("payment_status", "paid");
-      return json(400, { error: "This payment did not go through. Please try again." });
+      return reject("payment_failed", "This payment did not go through. Please try again.");
     }
 
     // Server-side capture fallback for accounts that leave payments "authorized".
