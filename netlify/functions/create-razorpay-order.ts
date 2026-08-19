@@ -125,7 +125,10 @@ export const handler = async (event: FunctionEvent) => {
     const shipping = shippingFor(subtotal - discount);
     const gst = gstFor(subtotal - discount);
     const total = Math.max(1, subtotal - discount + shipping + gst);
-    const amountPaise = Math.max(MIN_PAYMENT_PAISE, Math.round(total * 100));
+    // The gateway amount MUST equal the stored order total exactly, otherwise
+    // verification (which compares total*100) would reject a genuine payment.
+    const amountPaise = Math.round(total * 100);
+    if (amountPaise < MIN_PAYMENT_PAISE) return json(400, { error: "Invalid order amount." });
 
     // --- Internal order first so every attempt is traceable ---
     const { data: order, error: orderError } = await admin

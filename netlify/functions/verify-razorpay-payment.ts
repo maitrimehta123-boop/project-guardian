@@ -17,6 +17,40 @@ const BodySchema = z.object({
   razorpay_signature: z.string().min(20).max(200),
 });
 
+type Admin = ReturnType<typeof getAdminClient>;
+
+/**
+ * Best-effort write of the audit columns added by the payment-hardening
+ * migration. Ignored if the column set is not deployed yet, so a genuine
+ * payment is never lost because of a pending migration.
+ */
+const recordVerification = async (
+  admin: Admin,
+  orderId: string,
+  fields: { verification_status: string; payment_verified_at?: string | null },
+) => {
+  const { error } = await admin.from("orders").update(fields).eq("id", orderId);
+  if (error) console.warn("verification_audit_write_skipped", error.message);
+};
+
+/** Persists a failed/rejected verification attempt for later investigation. */
+const logFailure = async (
+  admin: Admin,
+  reason: string,
+  orderId: string,
+  razorpayOrderId: string | null,
+  paymentId: string,
+) => {
+  await admin.from("payment_events").insert({
+    event_id: `verify_failed:${orderId}:${paymentId}:${reason}`,
+    event_type: `verification.${reason}`,
+    payment_id: paymentId,
+    razorpay_order_id: razorpayOrderId,
+    payload: { internal_order_id: orderId, reason },
+  });
+  await recordVerification(admin, orderId, { verification_status: `failed:${reason}` });
+};
+
 /**
  * Single verification path: signature (against the SERVER-stored Razorpay
  * order id) → Razorpay API truth → capture when only authorized → mark PAID.
@@ -68,13 +102,18 @@ export const handler = async (event: FunctionEvent) => {
     }
     if (!order.razorpay_order_id) return json(400, { error: "Invalid payment confirmation." });
 
-    if (!verifyRazorpaySignature(order.razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
+    const reject = async (reason: string, message: string) => {
       await admin
         .from("orders")
         .update({ status: "PAYMENT_FAILED", payment_status: "failed" })
         .eq("id", order.id)
         .neq("payment_status", "paid");
-      return json(400, { error: "We could not verify this payment." });
+      await logFailure(admin, reason, order.id, order.razorpay_order_id, razorpay_payment_id);
+      return json(400, { error: message });
+    };
+
+    if (!verifyRazorpaySignature(order.razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
+      return reject("signature_mismatch", "We could not verify this payment.");
     }
 
     const expectedPaise = Math.round(Number(order.total) * 100);
@@ -85,21 +124,11 @@ export const handler = async (event: FunctionEvent) => {
       payment.amount !== expectedPaise ||
       payment.currency !== "INR"
     ) {
-      await admin
-        .from("orders")
-        .update({ status: "PAYMENT_FAILED", payment_status: "failed" })
-        .eq("id", order.id)
-        .neq("payment_status", "paid");
-      return json(400, { error: "We could not verify this payment." });
+      return reject("amount_or_order_mismatch", "We could not verify this payment.");
     }
 
     if (payment.status === "failed") {
-      await admin
-        .from("orders")
-        .update({ status: "PAYMENT_FAILED", payment_status: "failed" })
-        .eq("id", order.id)
-        .neq("payment_status", "paid");
-      return json(400, { error: "This payment did not go through. Please try again." });
+      return reject("payment_failed", "This payment did not go through. Please try again.");
     }
 
     // Server-side capture fallback for accounts that leave payments "authorized".
@@ -127,6 +156,11 @@ export const handler = async (event: FunctionEvent) => {
       .neq("payment_status", "paid")
       .select("id, order_number")
       .maybeSingle();
+
+    await recordVerification(admin, order.id, {
+      verification_status: captured ? "verified" : "authenticated",
+      payment_verified_at: new Date().toISOString(),
+    });
 
     return json(200, {
       status: captured ? "paid" : "authenticated",
